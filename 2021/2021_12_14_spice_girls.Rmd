@@ -1,0 +1,184 @@
+---
+title: ""
+output: 
+    html_document:
+      code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo = T, fig.height = 8, fig.width = 10)
+
+library(tidytuesdayR)
+library(tidyverse)
+library(lubridate)
+library(highcharter)
+library(plotly)
+library(purrr)
+library(skimr)
+library(purrr)
+library(tidytext)
+library(stringr)
+
+# studio_album_tracks <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-12-14/studio_album_tracks.csv')
+# lyrics <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-12-14/lyrics.csv')
+# related_artists <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-12-14/related_artists.csv')
+# 
+# tt_data <- list(studio_album_tracks, lyrics, related_artists)
+# 
+# saveRDS(tt_data, here::here("2021", "2021_12_14_tt_data.rds"))
+
+big_labels <-
+  theme(text = element_text(size = 20)) 
+
+round_numerics <- 
+  function(data){
+    data %>%
+      mutate(across(where(is.numeric), ~ round(.x, 2)))
+  }
+
+add_table <- 
+  function(data){
+    data %>%
+      round_numerics() %>%
+      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, highlight = T, defaultPageSize = 10, 
+                           showSortIcon = T, striped = T, compact = T, defaultExpanded = T)
+  }
+
+tt_data <- 
+  readRDS(here::here("2021", "2021_12_14_tt_data.rds")) %>% 
+  set_names(c("studio_album_tracks", "lyrics", "related_artists"))
+
+tt_data %>% 
+  map(glimpse)
+```
+
+# Tidy Tuesday: Spice Girls{.tabset}
+
+## Data Review
+
+```{r}
+skimr::skim(tt_data$lyrics)
+
+shiny::hr()
+
+skimr::skim(tt_data$related_artists)
+
+shiny::hr()
+
+skimr::skim(tt_data$studio_album_tracks)
+```
+
+## Exploration
+
+```{r}
+# tt_data$lyrics
+
+names <- 
+  c("Posh", "Sporty", "Scary", "Ginger", "Baby")
+
+lyrics_clean <-
+  tt_data$lyrics %>%
+  mutate(section_artist = trimws(str_replace_all(section_artist, "[[:punct:]]", "")),
+         section_artist = str_replace_all(section_artist, "with", ""),
+         section_artist = str_squish(str_replace_all(section_artist, "and", "")),
+         section_artist = str_replace_all(section_artist, " ", ","),
+         artist_count = ifelse(str_count(section_artist, ",") + 1 > 5, 
+                               5, 
+                               str_count(section_artist, ",") + 1)
+  ) %>%
+  mutate(
+    artist_adj = case_when(
+      stringr::str_detect(section_artist, "All") ~ "All Simultaneous",
+      artist_count == 5 ~ "All Sequential",
+      stringr::str_detect(section_artist, "Spice,Girls") ~ "All",
+      stringr::str_detect(section_artist, "Victoria") ~ "Posh",
+      TRUE ~ section_artist),
+    section_adj = case_when(
+      stringr::str_detect(section_name, "Verse") ~ "Verse",
+      stringr::str_detect(section_name, "Pre-Chorus") ~ "Pre-Chorus",
+      stringr::str_detect(section_name, "Post-Chorus") ~ "Post-Chorus",
+      stringr::str_detect(section_name, "Refrain") ~ "Chorus",
+      section_name %in% c("Opening", "Intro") ~ "Intro",
+      TRUE ~ section_name
+    ),
+    artist_count = ifelse(artist_adj == "All", 5, artist_count)) %>% 
+  filter(!section_adj %in% c("Melanie B:", "Post-Chorus"))
+
+```
+
+```{r}
+
+lyrics_clean %>% 
+  group_by(section_adj, artist_count, section_artist, artist_adj) %>%
+  tally() %>%
+  ungroup() %>%
+  mutate(artist_adj = factor(artist_adj),
+         artist_adj = reorder_within(artist_adj, n, section_adj)) %>% 
+  ggplot(., aes(x = artist_adj, y = n, fill = section_adj)) + 
+  geom_col() + 
+  facet_wrap(.~section_adj, scales = "free") + 
+  coord_flip() + 
+  scale_x_reordered() +
+  scale_y_continuous(expand = c(0,5)) + 
+  theme(legend.position = "none") + 
+  theme_minimal() + 
+  theme(legend.position = "none") 
+
+lyrics_clean %>% 
+  group_by(section_adj, artist_count) %>%
+  tally() %>%
+  mutate(freq = n / sum(n)) %>%
+  ungroup() %>%
+  ggplot(., aes(x = artist_count, y = freq, fill = section_adj)) + 
+  geom_col() +
+  facet_wrap(.~section_adj, scales = "free_y") + 
+  coord_flip() + 
+  theme(legend.position = "none") + 
+  scale_y_continuous(expand = c(0,.05), labels = scales::percent) + 
+  theme_minimal() + 
+  theme(legend.position = "none") 
+
+lyrics_clean %>% 
+  filter(artist_count == 1) %>% 
+  group_by(section_adj, artist_adj) %>%
+  tally() %>%
+  mutate(freq = n / sum(n)) %>%
+  ungroup() %>%
+  tidyr::complete(section_adj, fill = list(n = 0, freq = 0)) %>% 
+  mutate(artist_adj = factor(artist_adj),
+         artist_adj = reorder_within(artist_adj, freq, section_adj)) %>% 
+  ggplot(., aes(x = artist_adj, y = freq, fill = section_adj)) + 
+  geom_col() + 
+  facet_wrap(.~section_adj, scales = "free_y") + 
+  coord_flip() +  
+  scale_x_reordered() +
+  scale_y_continuous(labels = scales::percent, expand = c(0,.05)) + 
+  labs(title = "Who has the most solos for each section?") + 
+  theme_minimal() + 
+  theme(legend.position = "none") + 
+  scale_color_brewer(3) 
+
+```
+
+
+```{r}
+
+lyrics_clean %>%
+  select(song_name, section_name) %>%
+  # distinct() %>%
+  arrange(song_name, section_name) %>%
+  group_by(song_name, section_name) %>%
+  mutate(id = row_number()) %>% View
+
+lyrics_clean %>%
+  filter(song_name == "Wannabe") %>%
+  
+  select(-c(artist_name, section_artist), 
+         -starts_with("line")) %>% View
+  distinct()
+
+
+
+```

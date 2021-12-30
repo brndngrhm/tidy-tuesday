@@ -1,0 +1,157 @@
+---
+title: "TidyTuesday: Modeling the Relationship between Whipcream and Calories of Starbucks Drinks"
+output: 
+  html_document:
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo = T, fig.height = 10, fig.width = 13, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(highcharter)
+library(plotly)
+library(purrr)
+library(skimr)
+library(here)
+library(corrr)
+library(tidymodels)
+
+big_labels <-
+  theme(text = element_text(size = 14)) 
+
+round_numerics <- 
+  function(data){
+    data %>%
+      mutate(across(where(is.numeric), ~ round(.x, 2)))
+  }
+
+addtable <- 
+  function(data){
+    data %>%
+      round_numerics() %>%
+      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, highlight = T, defaultPageSize = 15, 
+                           showSortIcon = T, striped = T, compact = T, defaultExpanded = T)
+  }
+
+
+tail(list.files(here::here("data")))
+
+tt_data <- 
+  readRDS(here::here("data", "2021-12-21_tt_data.rds")) %>%
+  map_dfr(., as_tibble) %>%
+  ungroup()
+
+sbucks <- 
+  tt_data %>%
+  mutate(milk = case_when(
+    milk == 0 ~ "none",
+    milk == 1 ~ "nonfat",
+    milk == 2 ~ "2%",
+    milk == 3 ~ "soy",
+    milk == 4 ~ "coconut",
+    milk == 5 ~ "whole",
+    TRUE ~ "FROG"
+  ))
+```
+
+## See the data
+```{r}
+
+skimr::partition(skim(sbucks))
+
+sbucks %>%
+  addtable
+
+```
+
+```{r eval = F}
+get_cor <- 
+  function(size){
+    sbucks %>%
+      filter(size == {{size}}) %>%
+      na.omit() %>%
+      select(where(is.numeric)) %>%
+      corrr::correlate() %>%
+      corrr::shave(upper = TRUE) %>%
+      corrr::rplot() +
+      labs(title = glue::glue("Corellation for {size} drinks")) + big_labels
+  }
+
+map(c("short", "tall", "grande", "venti", "trenta"), ~get_cor(size = .x))
+
+```
+
+## Modelling the impact on calories of whipped cream
+
+```{r}
+# https://juliasilge.com/blog/beer-production/
+
+# first need to only include products where whip is an option; remove those with few options
+whip_diff <- 
+  sbucks %>%
+  select(product_name, size, milk, whip, calories) %>%
+  group_by(product_name, size, milk) %>%
+  mutate(has_whip_option = max(whip)) %>%
+  filter(has_whip_option == 1) %>%
+  mutate(whip = factor(whip, levels = c("0", "1")),
+         size = factor(size, levels = c("short", "tall", "grande", "venti")),
+         milk = factor(milk, levels = c("nonfat", "soy", "coconut", "2%", "whole")))
+
+# need to remove some categories
+whip_diff %>%
+  ggplot(., aes(x = whip, y = calories)) + 
+  geom_jitter(alpha = .5) +
+  geom_boxplot(alpha = .75) + 
+  facet_grid(milk ~ size, scales = 'free') + 
+  big_labels
+
+```
+
+```{r}
+
+whip_diff <- 
+  whip_diff %>%
+  filter(size %in% c("grande", "short", "tall", "venti"),
+         milk != 'none')
+
+ggplot(whip_diff, aes(x = whip, y = calories, fill = milk)) + 
+  geom_jitter(alpha = .5) +
+  geom_boxplot(alpha = .75) + 
+  facet_grid(. ~ size) + 
+  labs(fill = "Milk Type") + 
+  big_labels
+
+```
+
+```{r eval = F}
+
+# use bootstrap resampling; account for potential interaction effect
+samples <-
+  rsample::bootstraps(whip_diff, times = 1e3)
+
+whip_models <- 
+  samples %>%
+  mutate(
+    model = map(splits, ~ lm(calories ~ whip + size + milk + whip*size + whip*milk, data = .)),
+    coef_info = map(model, tidy)
+  )
+
+whip_models
+
+whip_coefs <- 
+  whip_models %>%
+  unnest(coef_info)
+
+whip_coefs
+
+whip_coefs %>%
+  ggplot(aes(estimate)) +
+  geom_histogram(alpha = 0.7) + 
+  facet_wrap(.~term, scales = "free")
+
+```
+

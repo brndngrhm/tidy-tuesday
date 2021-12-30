@@ -1,0 +1,50 @@
+---
+title: ""
+output: html_notebook
+  code_folding: hide
+  toc: true
+    toc_float:
+      toc_collapsed: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo = T, fig.show = 7, fig.width = 10)
+
+library(tidytuesdayR)
+library(tidyverse)
+library(lubridate)
+library(highcharter)
+library(plotly)
+library(purrr)
+library(skimr)
+library(here)
+
+big_labels <-
+  theme(text = element_text(size = 20)) 
+
+round_numerics <- 
+  function(data){
+    data %>%
+      mutate(across(where(is.numeric), ~ round(.x, 2)))
+  }
+
+add_table <- 
+  function(data){
+    data %>%
+      round_numerics() %>%
+      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, highlight = T, defaultPageSize = 10, 
+                           showSortIcon = T, striped = T, compact = T, defaultExpanded = T)
+  }
+
+
+tail(list.files(here::here("data")))
+
+tt_data <- 
+  readRDS(here::here("data", "2021-12-21_tt_data.rds")) %>%
+  map_dfr(., as_tibble)
+
+str(tt_data)
+```
+
