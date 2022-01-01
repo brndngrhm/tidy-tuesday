@@ -17,6 +17,18 @@ get_tt_data <-
   }
 
 # get the data
-date <- ""
+date <- "2021-10-26"
   
 get_tt_data(date)
+
+
+tt_data <- 
+  tt_load("2021-10-26")
+
+
+ultra_rankings <- 
+  readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/ultra_rankings.csv')
+
+race <- 
+  readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/race.csv')
+

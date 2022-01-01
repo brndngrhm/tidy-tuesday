@@ -1,0 +1,219 @@
+---
+title: "Comparing Ultra Trail Running Variabilty Across Countries"
+output:
+  html_document:
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r get data, include = FALSE, eval = FALSE}
+ultra_rankings <- 
+  readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/ultra_rankings.csv')
+
+race <- 
+  readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/race.csv')
+
+save_tt_data <- 
+  function(data){
+    path <- 
+      here::here("data", paste0(data, ".rds"))
+    saveRDS(data, path)
+  }
+
+saveRDS(ultra_rankings, 
+        here::here("data", "ultra_rankings.rds"))
+
+saveRDS(race, 
+        here::here("data", "race.rds"))
+```
+
+```{r include = FALSE}
+knitr::opts_chunk$set(echo = T, fig.height = 10, fig.width = 12, message = FALSE, warning = FALSE)
+
+library(tidytuesdayR)
+library(tidyverse)
+library(lubridate)
+library(highcharter)
+library(plotly)
+library(purrr)
+library(skimr)
+library(here)
+library(ggrepel)
+
+big_labels <-
+  theme(text = element_text(size = 20)) 
+
+round_numerics <- 
+  function(data){
+    data %>%
+      mutate(across(where(is.numeric), ~ round(.x, 2)))
+  }
+
+add_table <- 
+  function(data){
+    data %>%
+      round_numerics() %>%
+      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, highlight = T, defaultPageSize = 10, 
+                           showSortIcon = T, striped = T, compact = T, defaultExpanded = T)
+  }
+
+race <- 
+  read_rds(here::here("data", "race.rds")) %>%
+  mutate(year = year(date))
+
+ultra_rankings <- 
+  read_rds(here::here("data", "ultra_rankings.rds"))
+
+```
+
+## See the data
+
+#### Races
+
+Race data is at the race level; events are made up of races. there can be multiple event observations per year. 
+
+```{r}
+race %>% 
+  add_table()
+```
+
+**Example data for Run Rabbit Run event:**
+
+```{r}
+
+race %>% 
+  filter(event == "RUN RABBIT RUN") %>%
+  group_by(event, race, year) %>% 
+  tally() %>%
+  head(10) %>%
+  arrange(year) %>%
+  add_table()
+
+```
+
+Some races can have thousands of participants
+
+```{r}
+race %>% 
+  select(event, race, participants) %>%
+  distinct() %>%
+  arrange(desc(participants)) %>%
+  head(10) %>%
+  add_table()
+```
+
+#### Rankings
+
+Ranking data is at the racer level; racers can appear more than once
+
+```{R}
+ultra_rankings %>%
+  group_by(runner) %>% 
+  tally(sort = T) %>%
+  head(10) %>%
+  add_table()
+```
+
+Rankings seem interesting, let's try and see which countries have runners with the most *consistent* rankings.
+
+```{r}
+ultra_rankings %>% 
+  add_table()
+```
+
+First we need to prep the data a little bit. We'll set a threshold to only include countries where citizens of a given country participated in at least 15 races.
+```{r}
+country_counts <- 
+  ultra_rankings %>%
+  select(nationality, race_year_id) %>%
+  distinct() %>%
+  group_by(nationality) %>%
+  tally()
+
+quantile(country_counts$n, probs = seq(0, 1, .10))
+
+```
+
+Ranking is highly skewed, so instead of using the Coefficient of Variation we can use the Coefficient of *Quartile* Variation to compare the variability in rankings across countries. 
+
+$$
+QCV = [(q3 - q1)/(q3 + q1))]*100
+$$
+
+Using this approach, we can visualize the QCV and median rank of countries. For example, MAR has a relatively good ranking (low), but have the highest variability in rankings relative to the other countries. On the other hand, URU runners have the most *consistent* ranking but tend to have higher rankings.
+
+```{r}
+top_countries <- 
+  ultra_rankings %>%
+  select(nationality, race_year_id) %>%
+  distinct() %>%
+  group_by(nationality) %>%
+  tally() %>%
+  filter(n > 15) %>% 
+  pull(nationality)
+
+# get Coefficient of Quartile Variation
+ultra_rankings %>%
+  filter(nationality %in% top_countries) %>%
+  group_by(nationality) %>%
+  summarise(mean_rank = mean(rank, na.rm = T),
+            median_rank = median(rank, na.rm = T),
+            q3 = quantile(x = rank, probs = .75, na.rm = T),
+            q1 = quantile(x = rank, probs = .25, na.rm = T),
+            sd_rank = sd(rank, na.rm = T),
+            cv = sd_rank/mean_rank,
+            qcv = ((q3 - q1)/(q3 + q1))*100) %>%
+  ggplot(., aes(x = reorder(nationality, qcv), y = qcv, label = round(median_rank, 2))) + 
+  geom_point(size = 1.9, alpha = .75, aes(color = median_rank)) + 
+  geom_text(nudge_y = 1.5) + 
+  coord_flip() +
+  labs(y = "Coefficient of Quartile Variation", x = "", color = "Log Median Rank")
+
+```
+
+
+Plotting median rank vs QCV shows there is not much correlation between QCV and median rank. This could be a runner effect in that for some countries, a low number of runners account for a majority of results.
+
+```{r}
+
+# get Coefficient of Quartile Variation
+ultra_rankings %>%
+  filter(nationality %in% top_countries) %>%
+  group_by(nationality) %>%
+  summarise(mean_rank = mean(rank, na.rm = T),
+            median_rank = median(rank, na.rm = T),
+            q3 = quantile(x = rank, probs = .75, na.rm = T),
+            q1 = quantile(x = rank, probs = .25, na.rm = T),
+            sd_rank = sd(rank, na.rm = T),
+            cv = sd_rank/mean_rank,
+            qcv = ((q3 - q1)/(q3 + q1))*100) %>%
+  ggplot(., aes(x = qcv, y = median_rank, label = nationality, 2)) + 
+  geom_point() + 
+  geom_text_repel(nudge_y = 0) + 
+  # coord_flip() +
+  labs(x = "Coefficient of Quartile Variation", y = "Median Rank")
+```
+
+This appears true upon first glance. MAR has 14 runners in the data, about half of which only competed in 1 race, whereas BUL (a more consistent country) has over 180 runners with many competing in several races. 
+
+```{r}
+
+ultra_rankings %>% 
+  filter(nationality == "MAR") %>%
+  na.omit() %>%
+  group_by(nationality, runner) %>%
+  summarise(median_rank = median(rank),
+            n = n()) %>%
+  arrange(desc(n)) %>% 
+  add_table()
+
+ultra_rankings %>%
+  filter(nationality == "BUL") %>%
+  na.omit() %>%
+  group_by(nationality, runner) %>%
+  summarise(median_rank = median(rank),
+            n = n()) %>%
+  arrange(desc(n))%>% 
+  add_table()
+```
