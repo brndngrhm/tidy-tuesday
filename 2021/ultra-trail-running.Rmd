@@ -3,9 +3,22 @@ title: "Comparing Ultra Trail Running Variabilty Across Countries"
 output:
   html_document:
     code_folding: hide
+    css: ../tt_css.css
 editor_options: 
   chunk_output_type: console
 ---
+
+<head>
+<link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet"> 
+</head>
+
+<style type="text/css">
+.main-container {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
 
 ```{r get data, include = FALSE, eval = FALSE}
 ultra_rankings <- 
@@ -29,7 +42,7 @@ saveRDS(race,
 ```
 
 ```{r include = FALSE}
-knitr::opts_chunk$set(echo = T, fig.height = 10, fig.width = 12, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = T, fig.height = 7, fig.width = 9, message = FALSE, warning = FALSE)
 
 library(tidytuesdayR)
 library(tidyverse)
@@ -42,7 +55,7 @@ library(here)
 library(ggrepel)
 
 big_labels <-
-  theme(text = element_text(size = 20)) 
+  theme(text = element_text(size = 13)) 
 
 round_numerics <- 
   function(data){
@@ -54,8 +67,9 @@ add_table <-
   function(data){
     data %>%
       round_numerics() %>%
-      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, highlight = T, defaultPageSize = 10, 
-                           showSortIcon = T, striped = T, compact = T, defaultExpanded = T)
+      reactable::reactable(., fullWidth = F, resizable = T, filterable = T, 
+                           highlight = T, defaultPageSize = 10, wrap = FALSE,
+                           showSortIcon = T, striped = T, compact = T)
   }
 
 race <- 
@@ -63,13 +77,12 @@ race <-
   mutate(year = year(date))
 
 ultra_rankings <- 
-  read_rds(here::here("data", "ultra_rankings.rds"))
+  read_rds(here::here("data", "ultra_rankings.rds")) %>%
+  mutate(nationality = ifelse(nationality == "Fra", "FRA", nationality))
 
 ```
 
-## See the data
-
-#### Races
+## Races
 
 Race data is at the race level; events are made up of races. there can be multiple event observations per year. 
 
@@ -78,15 +91,13 @@ race %>%
   add_table()
 ```
 
-**Example data for Run Rabbit Run event:**
+Example data for `Run Rabbit Run` event:
 
 ```{r}
 
 race %>% 
   filter(event == "RUN RABBIT RUN") %>%
-  group_by(event, race, year) %>% 
-  tally() %>%
-  head(10) %>%
+  select(event, race, year) %>% 
   arrange(year) %>%
   add_table()
 
@@ -103,26 +114,27 @@ race %>%
   add_table()
 ```
 
-#### Rankings
+## Rankings
 
 Ranking data is at the racer level; racers can appear more than once
-
-```{R}
-ultra_rankings %>%
-  group_by(runner) %>% 
-  tally(sort = T) %>%
-  head(10) %>%
-  add_table()
-```
-
-Rankings seem interesting, let's try and see which countries have runners with the most *consistent* rankings.
 
 ```{r}
 ultra_rankings %>% 
   add_table()
 ```
 
-First we need to prep the data a little bit. We'll set a threshold to only include countries where citizens of a given country participated in at least 15 races.
+```{r}
+ultra_rankings %>%
+  group_by(runner, nationality) %>% 
+  tally(sort = T) %>%
+  head(10) %>%
+  add_table()
+```
+
+## Variation in Ranking Among Countries
+
+Rankings seem interesting, let's try and see which countries have runners with the most *consistent* rankings. First we need to prep the data a little bit. We'll set a threshold to only include countries where runners from that given country participated in at least 15 races.
+
 ```{r}
 country_counts <- 
   ultra_rankings %>%
@@ -131,19 +143,20 @@ country_counts <-
   group_by(nationality) %>%
   tally()
 
-quantile(country_counts$n, probs = seq(0, 1, .10))
+runner_count <-
+  ultra_rankings %>%
+  select(nationality, runner) %>%
+  distinct() %>%
+  group_by(nationality) %>%
+  tally()
 
+# quantile(country_counts$n, probs = seq(0, 1, .10))
+
+# quantile(runner_count$n, probs = seq(0, 1, .10))
 ```
 
-Ranking is highly skewed, so instead of using the Coefficient of Variation we can use the Coefficient of *Quartile* Variation to compare the variability in rankings across countries. 
-
-$$
-QCV = [(q3 - q1)/(q3 + q1))]*100
-$$
-
-Using this approach, we can visualize the QCV and median rank of countries. For example, MAR has a relatively good ranking (low), but have the highest variability in rankings relative to the other countries. On the other hand, URU runners have the most *consistent* ranking but tend to have higher rankings.
-
 ```{r}
+
 top_countries <- 
   ultra_rankings %>%
   select(nationality, race_year_id) %>%
@@ -153,67 +166,100 @@ top_countries <-
   filter(n > 15) %>% 
   pull(nationality)
 
-# get Coefficient of Quartile Variation
+top_countries <- 
+  ultra_rankings %>%
+  filter(nationality %in% top_countries) %>%
+  na.omit() %>%
+  select(nationality, runner) %>%
+  distinct() %>%
+  group_by(nationality) %>%
+  tally() %>% 
+  filter(n > 15) %>% 
+  pull(nationality)
+
 ultra_rankings %>%
   filter(nationality %in% top_countries) %>%
-  group_by(nationality) %>%
-  summarise(mean_rank = mean(rank, na.rm = T),
-            median_rank = median(rank, na.rm = T),
-            q3 = quantile(x = rank, probs = .75, na.rm = T),
-            q1 = quantile(x = rank, probs = .25, na.rm = T),
-            sd_rank = sd(rank, na.rm = T),
-            cv = sd_rank/mean_rank,
-            qcv = ((q3 - q1)/(q3 + q1))*100) %>%
-  ggplot(., aes(x = reorder(nationality, qcv), y = qcv, label = round(median_rank, 2))) + 
-  geom_point(size = 1.9, alpha = .75, aes(color = median_rank)) + 
-  geom_text(nudge_y = 1.5) + 
+  filter(!is.na(rank)) %>%
+  ggplot(aes(rank)) + 
+  geom_histogram() + 
+  ggtitle("race rankings") + 
+  big_labels
+
+```
+
+Ranking is highly skewed, so we can use a modified formula for the coefficient of variation meant for log-normal data:
+$$
+{cv_{raw}} = \sqrt{e^{s^2_{ln}} - 1}
+$$
+
+where $s_{ln}$ is the sample standard deviation of the data after a natural log transformation. Another alternative we could use the Coefficient of *Quartile* Variation (see below), but we'll stick with the modified *cv* instead.
+
+*Coefficient of Quartile Variation*
+
+$$
+QCV = [(q3 - q1)/(q3 + q1))]*100
+$$
+
+### Viewing the Variation
+
+After calculating the CV for log-normal data, we can compare each countries variation. France, Luxembourg and Korea are interesting in that they are relatively consistent, but their median ranks are very high. This suggests racers from these countries get consistently poor results
+
+```{r}
+
+cv_log <- 
+  ultra_rankings %>%
+  filter(nationality %in% top_countries) %>%
+  filter(!is.na(rank), !(is.na(gender))) %>%
+  mutate(log_rank = log(rank)) %>% 
+  group_by(nationality) %>% 
+  summarise(
+    mean_rank = mean(rank, na.rm = T),
+    median_rank = median(rank, na.rm = T),
+    q3 = quantile(x = rank, probs = .75, na.rm = T),
+    q1 = quantile(x = rank, probs = .25, na.rm = T),
+    sd_rank = sd(log_rank, na.rm = T),
+    cv_log = sqrt((exp(1)^(sd_rank^2)) - 1),
+    qcv = ((q3 - q1)/(q3 + q1))*100
+  )
+
+cv_log %>%
+  ggplot(., aes(x = reorder(nationality, cv_log), y = cv_log, label = round(mean_rank, 2))) + 
+  geom_point(size = 3.5, alpha = .85, aes(color = mean_rank)) + 
+  scale_color_distiller(direction = -1, palette = "BuPu") +
   coord_flip() +
-  labs(y = "Coefficient of Quartile Variation", x = "", color = "Log Median Rank")
-
+  labs(y = "Coefficient of Variation", x = "", color = "Mean Rank",
+       title = "Coefficient of Variation in Race Rankings") + 
+  big_labels
 ```
 
-
-Plotting median rank vs QCV shows there is not much correlation between QCV and median rank. This could be a runner effect in that for some countries, a low number of runners account for a majority of results.
+Let's see if this CV aligns with the distributions of the top 2 and bottom 2 ranked countries. We can compare the ranking distributions of THA and USA with that of EDU and EST. The plot shows that ranking distribution for THA and USA are not as skewed as ECU and EST
 
 ```{r}
-
-# get Coefficient of Quartile Variation
 ultra_rankings %>%
   filter(nationality %in% top_countries) %>%
-  group_by(nationality) %>%
-  summarise(mean_rank = mean(rank, na.rm = T),
-            median_rank = median(rank, na.rm = T),
-            q3 = quantile(x = rank, probs = .75, na.rm = T),
-            q1 = quantile(x = rank, probs = .25, na.rm = T),
-            sd_rank = sd(rank, na.rm = T),
-            cv = sd_rank/mean_rank,
-            qcv = ((q3 - q1)/(q3 + q1))*100) %>%
-  ggplot(., aes(x = qcv, y = median_rank, label = nationality, 2)) + 
-  geom_point() + 
-  geom_text_repel(nudge_y = 0) + 
-  # coord_flip() +
-  labs(x = "Coefficient of Quartile Variation", y = "Median Rank")
+  filter(!is.na(rank)) %>%
+  filter(nationality %in% c("USA", "THA", "EST", "ECU")) %>% 
+  ggplot(aes(x = rank, fill = nationality)) + 
+  geom_histogram(position = "stack", show.legend = FALSE, alpha = .55) + 
+  facet_wrap(vars(nationality), scales = 'free') +
+  big_labels + 
+  scale_fill_brewer(palette = "Dark2") 
+
 ```
 
-This appears true upon first glance. MAR has 14 runners in the data, about half of which only competed in 1 race, whereas BUL (a more consistent country) has over 180 runners with many competing in several races. 
+Plotting each country's mean rank vs CV shows there is slight correlation; countries whose runners are more consistent tend to have better ranking on average.
 
 ```{r}
 
-ultra_rankings %>% 
-  filter(nationality == "MAR") %>%
-  na.omit() %>%
-  group_by(nationality, runner) %>%
-  summarise(median_rank = median(rank),
-            n = n()) %>%
-  arrange(desc(n)) %>% 
-  add_table()
+cv_log %>%
+  ggplot(., aes(x = cv_log, y = mean_rank, label = nationality, 2)) + 
+  geom_text_repel() + 
+  geom_point() + 
+  geom_smooth(method = "gam", se = F) +
+  labs(x = "Coefficient of Variation", y = "Mean Rank")  + 
+  scale_y_continuous(breaks = seq(0, 800, 25)) +
+  scale_x_continuous(limits = c(1.5, 10), breaks = seq(0, 10, 1)) + 
+  big_labels
 
-ultra_rankings %>%
-  filter(nationality == "BUL") %>%
-  na.omit() %>%
-  group_by(nationality, runner) %>%
-  summarise(median_rank = median(rank),
-            n = n()) %>%
-  arrange(desc(n))%>% 
-  add_table()
 ```
+

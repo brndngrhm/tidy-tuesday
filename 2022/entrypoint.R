@@ -1,0 +1,1 @@
+plumber::plumb(here::here("2022", "plumber.R"))$run(swagger = TRUE)
