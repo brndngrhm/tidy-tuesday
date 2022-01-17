@@ -53,6 +53,7 @@ library(purrr)
 library(skimr)
 library(here)
 library(ggrepel)
+library(ghibli)
 
 big_labels <-
   theme(text = element_text(size = 13)) 
@@ -70,6 +71,54 @@ add_table <-
       reactable::reactable(., fullWidth = F, resizable = T, filterable = T, 
                            highlight = T, defaultPageSize = 10, wrap = FALSE,
                            showSortIcon = T, striped = T, compact = T)
+  }
+
+bg_theme <- 
+  function(base_size = 11,
+           strip_text_size = 12,
+           strip_text_margin = 10,
+           subtitle_size = 13,
+           subtitle_margin = 10,
+           plot_title_size = 16,
+           plot_title_margin = 10,
+           font = "RobotoMono-Regular",
+           ...) {
+    
+    ret <-
+      ggplot2::theme_gray(base_family = font,
+                          base_size = base_size, ...,) +
+      theme(
+        panel.background = element_rect(fill = "#f3f3f3"),
+        plot.background = element_rect(fill = "#f3f3f3"),
+        legend.background = element_rect(fill = "#f3f3f3")
+        )
+    
+    ret$strip.text <-
+      ggplot2::element_text(
+        # hjust = 0,
+        vjust = -.8,
+        size = strip_text_size,
+        margin = ggplot2::margin(b = strip_text_margin),
+        family = font
+      )
+    
+    ret$plot.subtitle <-
+      ggplot2::element_text(
+        hjust = 0,
+        size = subtitle_size,
+        margin = ggplot2::margin(b = subtitle_margin),
+        family = font
+      )
+    
+    ret$plot.title <-
+      ggplot2::element_text(
+        hjust = 0,
+        size = plot_title_size,
+        margin = ggplot2::margin(b = plot_title_margin),
+        family = font
+      )
+    
+    ret
   }
 
 race <- 
@@ -183,7 +232,7 @@ ultra_rankings %>%
   ggplot(aes(rank)) + 
   geom_histogram() + 
   ggtitle("race rankings") + 
-  big_labels
+  bg_theme()
 
 ```
 
@@ -225,11 +274,12 @@ cv_log <-
 cv_log %>%
   ggplot(., aes(x = reorder(nationality, cv_log), y = cv_log, label = round(mean_rank, 2))) + 
   geom_point(size = 3.5, alpha = .85, aes(color = mean_rank)) + 
-  scale_color_distiller(direction = -1, palette = "BuPu") +
   coord_flip() +
   labs(y = "Coefficient of Variation", x = "", color = "Mean Rank",
        title = "Coefficient of Variation in Race Rankings") + 
-  big_labels
+  bg_theme() + 
+  ghibli::scale_color_ghibli_c("LaputaMedium")
+
 ```
 
 Let's see if this CV aligns with the distributions of the top 2 and bottom 2 ranked countries. We can compare the ranking distributions of THA and USA with that of EDU and EST. The plot shows that ranking distribution for THA and USA are not as skewed as ECU and EST
@@ -242,8 +292,8 @@ ultra_rankings %>%
   ggplot(aes(x = rank, fill = nationality)) + 
   geom_histogram(position = "stack", show.legend = FALSE, alpha = .55) + 
   facet_wrap(vars(nationality), scales = 'free') +
-  big_labels + 
-  scale_fill_brewer(palette = "Dark2") 
+  bg_theme() + 
+  ghibli::scale_fill_ghibli_d("PonyoMedium")
 
 ```
 
@@ -259,7 +309,7 @@ cv_log %>%
   labs(x = "Coefficient of Variation", y = "Mean Rank")  + 
   scale_y_continuous(breaks = seq(0, 800, 25)) +
   scale_x_continuous(limits = c(1.5, 10), breaks = seq(0, 10, 1)) + 
-  big_labels
+  bg_theme()
 
 ```
 

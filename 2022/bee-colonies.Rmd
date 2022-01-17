@@ -40,6 +40,7 @@ library(rules)
 library(vetiver)
 library(doParallel)
 library(pins)
+library(ghibli)
 
 big_labels <-
   theme(text = element_text(size = 13)) 
@@ -65,6 +66,58 @@ colony <-
 stressor <- 
   readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-01-11/stressor.csv')
 
+add_theme <- 
+  function(){
+    ggplot2::theme_minimal(base_family = "IBMPlexSans")
+  }
+
+bg_theme <- 
+  function(base_size = 11,
+           strip_text_size = 12,
+           strip_text_margin = 10,
+           subtitle_size = 13,
+           subtitle_margin = 10,
+           plot_title_size = 16,
+           plot_title_margin = 10,
+           font = "RobotoMono-Regular",
+           ...) {
+    
+    ret <-
+      ggplot2::theme_gray(base_family = font,
+                          base_size = base_size, ...,) +
+      theme(
+        panel.background = element_rect(fill = "#f3f3f3"),
+        plot.background = element_rect(fill = "#f3f3f3"),
+        legend.background = element_rect(fill = "#f3f3f3")
+        )
+    
+    ret$strip.text <-
+      ggplot2::element_text(
+        # hjust = 0,
+        vjust = -.8,
+        size = strip_text_size,
+        margin = ggplot2::margin(b = strip_text_margin),
+        family = font
+      )
+    
+    ret$plot.subtitle <-
+      ggplot2::element_text(
+        hjust = 0,
+        size = subtitle_size,
+        margin = ggplot2::margin(b = subtitle_margin),
+        family = font
+      )
+    
+    ret$plot.title <-
+      ggplot2::element_text(
+        hjust = 0,
+        size = plot_title_size,
+        margin = ggplot2::margin(b = plot_title_margin),
+        family = font
+      )
+    
+    ret
+  }
 ```
 
 ## Introduction
@@ -104,10 +157,12 @@ There is not a clear relationship between each stressor at the outcome, but the 
 stressor %>%
   filter(state != 'United States') %>%
   inner_join(., colony) %>%
-  ggplot(., aes(x = stress_pct, y = colony_lost_pct, color = year)) + 
-  geom_point() + 
+  ggplot(., aes(x = stress_pct, y = colony_lost_pct, color = factor(year))) + 
+  geom_point(alpha = .45) + 
+  coord_equal() + 
   facet_wrap(vars(stressor)) +
-  coord_fixed()
+  bg_theme(base_size = 13) + 
+  ghibli::scale_color_ghibli_d("PonyoMedium")
 ```
 
 Here we create the modeling dataset. We have some missing data so we can add a pre-processing step to address that.
@@ -241,7 +296,9 @@ stopCluster(cl)
 
 workflowsets::rank_results(results, select_best = T, rank_metric = "rmse")
 
-autoplot(results, select_best = T)
+autoplot(results, select_best = T) +
+  bg_theme(base_size = 13) + 
+  ghibli::scale_color_ghibli_d("PonyoMedium")
 
 ```
 
@@ -253,7 +310,7 @@ From the [package website:](https://vetiver.tidymodels.org/index.html)
 
 This is great because prepping a model for deployment and then managing the deployment/versioning can be a pain. `vetiver` takes a fitted workflow, so we choose the best model based on the plot above, and "finalize" it by "locking in" the hyperparameter values that of random forest model and fitting that model on training set (in reality though, you would typically tune and compare several models, select the best model, evaluate on the test set, finalize the model, deploy it, and then predict on new data as necessary. We don't have any new data though, so we're using the test dataset as our "new data")
 
-```{r}
+```{r eval = FALSE}
 
 best_results <- 
   results %>% 
@@ -276,7 +333,7 @@ best_model <-
 
 Next we create `vetiver` object and pin to temp board. The piece of code at the end of this chunk creates a file for us called `plumber.R` and puts it in the working directory. This file contains the packages and files necessary to deploy the model as an API. But, first we can test it locally in the next step.
 
-```{r}
+```{r eval = FALSE}
 v <- 
   vetiver_model(model = best_model, 
                 model_name = "lost-colony-model")
@@ -300,7 +357,7 @@ vetiver_write_plumber(board = model_board,
 
 Following the steps outlined [here,](https://github.com/sol-eng/background-jobs/tree/main/plumber-job) we can run the API locally and call the `/predict` endpoint to apply our model on new data. First create the file called `entrypoint.R` and follow the instructions to run it as a local job. Paste the URL in `vetiver_endpoint()` below and retrieve your predictions using the test data! 
 
-```{r}
+```{r eval = FALSE}
 
 endpoint <- 
   vetiver_endpoint("http://127.0.0.1:8251/predict")
@@ -317,7 +374,7 @@ preds %>%
 
 Ideally the points in the scatterplot would fall along, or near, the 45-degree line, so the model performance isn't great. But we were able to successfully deploy it as an API and retrieve predictions!
 
-```{r}
+```{r eval = FALSE} 
 
 preds %>%
   ggplot(., aes(x = colony_lost_pct, y = .pred)) + 
@@ -325,5 +382,4 @@ preds %>%
   geom_point(alpha = 0.5) + 
   coord_obs_pred() + 
   labs(x = "observed", y = "predicted", title = "predicted colony lost pct vs actual")
-
 ```
